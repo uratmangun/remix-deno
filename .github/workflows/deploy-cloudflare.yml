@@ -92,7 +92,7 @@ jobs:
           fi
           
           PROJECT_NAME="${{ steps.deno_project_name.outputs.deno_project_name }}"
-          echo "Creating Deno Deploy project if it doesn't exist: ${PROJECT_NAME}"
+          echo "🔍 Checking Deno Deploy project: ${PROJECT_NAME}"
           
           # Install latest deployctl using JSR
           deno install -A --global jsr:@deno/deployctl
@@ -100,37 +100,79 @@ jobs:
           # Set non-interactive mode to prevent browser authorization prompts
           export DENO_DEPLOY_TOKEN="${{ secrets.DENO_DEPLOY_TOKEN }}"
           
-          # Try to create the project (will succeed if it doesn't exist, fail silently if it does)
-          deployctl projects create "${PROJECT_NAME}" --token="${DENO_DEPLOY_TOKEN}" || echo "Project may already exist - continuing"
+          # First, try to list projects to verify token works
+          echo "🔐 Verifying token access..."
+          if ! deployctl projects list --token="${DENO_DEPLOY_TOKEN}" >/dev/null 2>&1; then
+            echo "❌ Token verification failed. Please check DENO_DEPLOY_TOKEN secret."
+            echo "💡 Generate a new token at: https://dash.deno.com/account/access-tokens"
+            exit 1
+          fi
+          echo "✅ Token verified successfully"
+          
+          # Check if project already exists
+          if deployctl projects list --token="${DENO_DEPLOY_TOKEN}" | grep -q "^${PROJECT_NAME}$"; then
+            echo "✅ Project '${PROJECT_NAME}' already exists"
+          else
+            echo "🚀 Creating new project: ${PROJECT_NAME}"
+            if deployctl projects create "${PROJECT_NAME}" --token="${DENO_DEPLOY_TOKEN}"; then
+              echo "✅ Project created successfully"
+            else
+              echo "❌ Failed to create project. Check token permissions."
+              exit 1
+            fi
+          fi
         env:
           DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
 
       - name: Deploy to Deno Deploy
         id: deno-deploy
-        uses: denoland/deployctl@v1
-        with:
-          project: ${{ steps.deno_project_name.outputs.deno_project_name }}
-          entrypoint: functions/router.ts
-          root: .
+        run: |
+          PROJECT_NAME="${{ steps.deno_project_name.outputs.deno_project_name }}"
+          echo "🚀 Deploying to Deno Deploy project: ${PROJECT_NAME}"
+          
+          # Deploy using deployctl CLI
+          DEPLOY_OUTPUT=$(deployctl deploy --project="${PROJECT_NAME}" --token="${{ secrets.DENO_DEPLOY_TOKEN }}" functions/router.ts 2>&1)
+          DEPLOY_EXIT_CODE=$?
+          
+          echo "$DEPLOY_OUTPUT"
+          
+          if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+            echo "❌ Deployment failed with exit code: $DEPLOY_EXIT_CODE"
+            exit 1
+          fi
+          
+          # Extract deployment URL from output
+          DEPLOY_URL=$(echo "$DEPLOY_OUTPUT" | grep -oE 'https://[^[:space:]]+\.deno\.dev[^[:space:]]*' | head -1)
+          
+          if [ -n "$DEPLOY_URL" ]; then
+            echo "✅ Deployment successful: $DEPLOY_URL"
+            echo "url=$DEPLOY_URL" >> $GITHUB_OUTPUT
+          else
+            echo "❌ Deployment completed but no URL found in output"
+            exit 1
+          fi
         env:
           DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
-        continue-on-error: true
 
       - name: Log Deno Deploy Status
         id: deno-status
         run: |
           if [ -z "${{ secrets.DENO_DEPLOY_TOKEN }}" ]; then
-            echo " DENO_DEPLOY_TOKEN secret not configured - skipped deployment"
-            echo " To enable Deno Deploy, set DENO_DEPLOY_TOKEN secret"
-            echo "deno_url=http://localhost:8000" >> $GITHUB_OUTPUT
+            echo "❌ DENO_DEPLOY_TOKEN secret not configured"
+            echo "💡 To enable Deno Deploy:"
+            echo "   1. Generate token at: https://dash.deno.com/account/access-tokens"
+            echo "   2. Add DENO_DEPLOY_TOKEN to repository secrets"
+            echo "   3. Optionally add DENO_DEPLOY_PROJECT for specific project"
+            exit 1
           else
             DENO_URL="${{ steps.deno-deploy.outputs.url }}"
             if [ -n "$DENO_URL" ]; then
-              echo " Deno Deploy successful: $DENO_URL"
+              echo "✅ Deno Deploy successful: $DENO_URL"
               echo "deno_url=$DENO_URL" >> $GITHUB_OUTPUT
             else
-              echo " Deno Deploy completed but no URL returned, using fallback"
-              echo "deno_url=http://localhost:8000" >> $GITHUB_OUTPUT
+              echo "❌ Deno Deploy failed - no URL returned"
+              echo "💡 Check deployment logs for issues"
+              exit 1
             fi
           fi
 
