@@ -30,7 +30,12 @@ jobs:
       - name: Setup Deno
         uses: denoland/setup-deno@v1
         with:
-          deno-version: v1.46.x
+          deno-version: v2.x
+
+      - name: Check Deno version
+        run: |
+          echo "📋 Deno version information:"
+          deno --version
 
       - name: Verify Deno functions
         run: |
