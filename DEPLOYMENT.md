@@ -35,18 +35,28 @@ Before setting up deployment, you'll need accounts on:
 
 ### 2. Deno Deploy Setup
 
-1. **Create a Deno Deploy project:**
-   - Go to [Deno Deploy Dashboard](https://dash.deno.com/projects)
-   - Click "New Project"
-   - Choose "Empty Project"
-   - Set project name (e.g., `my-remix-functions`)
-   - Note the project name for later
+**🎉 NEW: Automatic Project Creation!**
 
-2. **Generate Access Token:**
+The GitHub Actions workflow now automatically creates your Deno Deploy project if it doesn't exist. You only need to:
+
+1. **Generate Access Token:**
    - Go to [Account Settings](https://dash.deno.com/account#access-tokens)
    - Click "New Access Token"
-   - Give it a descriptive name
+   - Give it a descriptive name (e.g., "GitHub Actions - remix-deno")
    - Copy the generated token
+
+2. **Choose Project Name:**
+   - Pick a unique project name (e.g., `my-remix-functions`)
+   - Must be lowercase, alphanumeric, and hyphens only
+   - Will be automatically created during first deployment
+
+**Optional: Manual Project Creation**
+
+If you prefer to create the project manually:
+1. Go to [Deno Deploy Dashboard](https://dash.deno.com/projects)
+2. Click "New Project" → "Empty Project"
+3. Set your chosen project name
+4. The workflow will detect and use the existing project
 
 ### 3. GitHub Secrets Configuration
 
@@ -61,8 +71,10 @@ Add these secrets to your GitHub repository:
 | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare Account ID | `a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6` |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | `abc123def456ghi789jkl012mno345pqr678` |
 | `DENO_DEPLOY_TOKEN` | Deno Deploy Access Token | `ddp_1234567890abcdef` |
-| `DENO_DEPLOY_PROJECT` | Your Deno Deploy project name | `my-remix-functions` |
+| `DENO_DEPLOY_PROJECT` | Your chosen project name (auto-created) | `my-remix-functions` |
 | `ADMIN_TOKEN` | GitHub Personal Access Token | `ghp_1234567890abcdef` |
+
+**✨ Note**: The `DENO_DEPLOY_PROJECT` will be automatically created if it doesn't exist!
 
 ### 4. GitHub Personal Access Token
 
@@ -111,8 +123,10 @@ The workflow performs these steps:
 1. ✅ Setup Deno runtime
 2. ✅ Type-check all functions
 3. ✅ Test function router
-4. ✅ Deploy to Deno Deploy
-5. ✅ Create deployment status
+4. ✅ Install Deno Deploy CLI (deployctl)
+5. ✅ Check if project exists (auto-create if needed)
+6. ✅ Deploy to Deno Deploy
+7. ✅ Create deployment status
 
 ## 🌐 Access Your Deployed Application
 
@@ -146,6 +160,12 @@ Your Deno functions will be available at:
 **GitHub integration fails:**
 - Verify `ADMIN_TOKEN` has correct permissions
 - Check token hasn't expired
+
+**Project creation fails:**
+- Verify project name is globally unique on Deno Deploy
+- Check project name follows naming rules (lowercase, alphanumeric, hyphens)
+- Ensure `DENO_DEPLOY_TOKEN` has "Deploy to projects" permission
+- Try a different project name if current one is taken
 
 ### Logs and Debugging
 
