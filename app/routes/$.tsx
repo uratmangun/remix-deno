@@ -1,20 +1,4 @@
-import { json } from "@remix-run/node";
-import type { LoaderFunctionArgs } from "@remix-run/node";
-
-export async function loader({ request }: LoaderFunctionArgs) {
-  const url = new URL(request.url);
-  
-  // Handle Chrome DevTools and other well-known requests silently
-  if (url.pathname.startsWith('/.well-known/')) {
-    return new Response(null, { status: 404 });
-  }
-  
-  // For other 404s, return JSON response
-  return json(
-    { message: "Not Found", path: url.pathname },
-    { status: 404 }
-  );
-}
+// Remove server-side loader for SPA mode
 
 export default function CatchAll() {
   return (
