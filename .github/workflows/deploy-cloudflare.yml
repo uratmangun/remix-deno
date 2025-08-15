@@ -72,17 +72,18 @@ jobs:
       - name: Generate Deno Deploy project name
         id: deno_project_name
         run: |
-          if [ -n "${{ secrets.DENO_DEPLOY_PROJECT }}" ]; then
-            echo "deno_project_name=${{ secrets.DENO_DEPLOY_PROJECT }}" >> $GITHUB_OUTPUT
-          else
-            # Generate project name from repository name
-            REPO_NAME="${{ github.event.repository.name }}"
-            PROJECT_NAME=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-63)
-            if [ -z "$PROJECT_NAME" ]; then
-              PROJECT_NAME="remix-deno-${GITHUB_RUN_ID}"
-            fi
-            echo "deno_project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+          # Always generate project name from repository name
+          REPO_NAME="${{ github.event.repository.name }}"
+          PROJECT_NAME=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-63)
+
+          # Fallback if repository name results in empty string
+          if [ -z "$PROJECT_NAME" ]; then
+            PROJECT_NAME="deno-deploy-${GITHUB_RUN_ID}"
           fi
+
+          echo "🏷️ Repository name: '$REPO_NAME'"
+          echo "🚀 Deno Deploy project name: '$PROJECT_NAME'"
+          echo "deno_project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
 
       - name: Create Deno Deploy project if not exists
         run: |

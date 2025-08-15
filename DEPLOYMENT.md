@@ -35,9 +35,13 @@ Before setting up deployment, you'll need accounts on:
 
 ### 2. Deno Deploy Setup
 
-**🎉 NEW: Automatic Project Creation!**
+**🎉 NEW: Automatic Project Creation & Naming!**
 
-The GitHub Actions workflow now automatically creates your Deno Deploy project if it doesn't exist. You only need to:
+The GitHub Actions workflow now automatically:
+- Creates your Deno Deploy project if it doesn't exist
+- Uses your GitHub repository name as the project name (automatically converted to lowercase with proper formatting)
+
+You only need to:
 
 1. **Generate Access Token:**
    - Go to [Account Settings](https://dash.deno.com/account#access-tokens)
@@ -45,10 +49,11 @@ The GitHub Actions workflow now automatically creates your Deno Deploy project i
    - Give it a descriptive name (e.g., "GitHub Actions - remix-deno")
    - Copy the generated token
 
-2. **Choose Project Name:**
-   - Pick a unique project name (e.g., `my-remix-functions`)
-   - Must be lowercase, alphanumeric, and hyphens only
-   - Will be automatically created during first deployment
+2. **Project Name:**
+   - **Automatically derived** from your GitHub repository name
+   - Example: Repository `My-Remix-App` becomes project `my-remix-app`
+   - Repository `remix_deno_template` becomes project `remix-deno-template`
+   - No manual configuration needed!
 
 **Optional: Manual Project Creation**
 
@@ -71,10 +76,9 @@ Add these secrets to your GitHub repository:
 | `CLOUDFLARE_ACCOUNT_ID` | Your Cloudflare Account ID | `a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6` |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token | `abc123def456ghi789jkl012mno345pqr678` |
 | `DENO_DEPLOY_TOKEN` | Deno Deploy Access Token | `ddp_1234567890abcdef` |
-| `DENO_DEPLOY_PROJECT` | Your chosen project name (auto-created) | `my-remix-functions` |
 | `ADMIN_TOKEN` | GitHub Personal Access Token | `ghp_1234567890abcdef` |
 
-**✨ Note**: The `DENO_DEPLOY_PROJECT` will be automatically created if it doesn't exist!
+**✨ Note**: The Deno Deploy project name is automatically derived from your GitHub repository name!
 
 ### 4. GitHub Personal Access Token
 
@@ -153,9 +157,9 @@ Your Deno functions will be available at:
 - Check API token permissions include `Cloudflare Pages:Edit`
 
 **Deno Deploy fails:**
-- Verify `DENO_DEPLOY_TOKEN` and `DENO_DEPLOY_PROJECT` are correct
-- Ensure project name matches exactly (case-sensitive)
+- Verify `DENO_DEPLOY_TOKEN` is correct and has proper permissions
 - Check that functions pass type checking
+- Ensure repository name is compatible with Deno Deploy naming rules (lowercase, alphanumeric, hyphens)
 
 **GitHub integration fails:**
 - Verify `ADMIN_TOKEN` has correct permissions
