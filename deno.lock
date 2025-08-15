@@ -103,6 +103,7 @@
         "npm:eslint-plugin-react@^7.33.2",
         "npm:eslint@^8.38.0",
         "npm:isbot@^4.1.0",
+        "npm:ky@^1.8.2",
         "npm:postcss@^8.4.38",
         "npm:react-dom@^18.2.0",
         "npm:react@^18.2.0",

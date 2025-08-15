@@ -20,6 +20,9 @@ importers:
       isbot:
         specifier: ^4.1.0
         version: 4.4.0
+      ky:
+        specifier: ^1.8.2
+        version: 1.8.2
       react:
         specifier: ^18.2.0
         version: 18.3.1
@@ -2407,6 +2410,10 @@ packages:
   kleur@4.1.5:
     resolution: {integrity: sha512-o+NO+8WrRiQEE4/7nwRJhN1HWpVmJm511pBHUxPLtp0BUISzlBplORYSmTclCnJvQq2tKu/sgl3xVpkc7ZWuQQ==}
     engines: {node: '>=6'}
+
+  ky@1.8.2:
+    resolution: {integrity: sha512-XybQJ3d4Ea1kI27DoelE5ZCT3bSJlibYTtQuMsyzKox3TMyayw1asgQdl54WroAm+fIA3ZCr8zXW2RpR7qWVpA==}
+    engines: {node: '>=18'}
 
   language-subtag-registry@0.3.23:
     resolution: {integrity: sha512-0K65Lea881pHotoGEa5gDlMxt3pctLi2RplBb7Ezh4rRdLEOtgi7n4EwK9lamnUCkKBqaeKRVebTq6BAxSkpXQ==}
@@ -6431,6 +6438,8 @@ snapshots:
       json-buffer: 3.0.1
 
   kleur@4.1.5: {}
+
+  ky@1.8.2: {}
 
   language-subtag-registry@0.3.23: {}
 

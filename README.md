@@ -1,66 +1,124 @@
-# Deploy and Host remix-template on Railway
+# Remix + Deno Deploy Template
 
-A modern Remix application template with TypeScript, Tailwind CSS, and Vite for fast development and production builds. This template provides a solid foundation for building full-stack React applications with server-side rendering capabilities.
+A modern full-stack application template combining **Remix SPA** with **Deno Deploy serverless functions**. This template provides a complete solution for building scalable web applications with TypeScript, Tailwind CSS, and automated deployment to Cloudflare Pages + Deno Deploy.
 
-## One click deploy url
+## 🚀 Quick Deploy
 
-[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/remix-template?referralCode=zZok6X)
+**Automated Deployment:** Push to main branch triggers automatic deployment to both platforms:
 
-## About Hosting remix-template
+- **Frontend**: Cloudflare Pages (Remix SPA)
+- **Functions**: Deno Deploy (Serverless API)
 
-This Remix template is designed for seamless deployment on Railway's platform. It includes a production-ready server setup with `remix-serve` and builds optimized client and server bundles. The application uses Node.js 20+ and includes modern tooling like Vite for fast builds and hot module replacement during development.
+📖 **[Complete Deployment Guide](./DEPLOYMENT.md)** - Step-by-step setup instructions
 
-## Common Use Cases
+## 🏗️ Architecture Overview
 
-- Full-stack web applications with server-side rendering
-- Progressive web apps with enhanced user experience
-- API-driven applications with integrated frontend and backend
-- E-commerce platforms requiring SEO optimization
-- Content management systems with dynamic routing
+This template uses a **dual deployment strategy** for optimal performance and scalability:
 
-## Dependencies for remix-template Hosting
+- **Remix SPA** → Cloudflare Pages (Global CDN, instant loading)
+- **Deno Functions** → Deno Deploy (Edge computing, auto-scaling)
+- **Dynamic Router** → Auto-discovers and routes to all functions
 
-**Runtime Requirements:**
-- Node.js 20.0.0 or higher
-- Package manager: pnpm (preferred) or yarn fallback
+## ✨ Features
 
-**Core Dependencies:**
-- @remix-run/node, @remix-run/react, @remix-run/serve
-- React 18.2.0+ and React DOM
-- TypeScript for type safety
-- Tailwind CSS for styling
+- **🎯 Full-Stack TypeScript** - End-to-end type safety
+- **⚡ Dynamic Function Registry** - Auto-discovers and routes to Deno functions
+- **🌐 Global CDN** - Cloudflare Pages for instant worldwide access
+- **🔄 Edge Computing** - Deno Deploy for serverless API endpoints
+- **🚀 Zero-Config Deployment** - GitHub Actions handles everything
+- **📱 Modern UI** - Tailwind CSS with responsive design
+- **🔧 Developer Experience** - Hot reload, concurrent development
 
-### Deployment Dependencies
+## 🛠️ Development Setup
 
-**Build Process:**
-- `pnpm run build` - Compiles the application for production
-- `pnpm start` - Starts the production server with remix-serve
+**Prerequisites:**
+- Node.js 20.0.0+ (for Remix frontend)
+- Deno 1.x+ (for serverless functions)
+- pnpm (preferred) or yarn
 
-**Environment Variables:**
-- `PORT` - Railway automatically provides this for server binding
-- Additional environment variables can be configured in Railway dashboard
+**Quick Start:**
+```bash
+# Clone and install
+git clone <your-repo>
+cd remix-deno
+pnpm install
 
-**Build Output:**
-- `build/server` - Server-side code
-- `build/client` - Client-side assets
+# Start concurrent development (Remix + Functions)
+pnpm dev
 
-## Using .kiro Automation (optional)
+# Or start individually
+pnpm dev:remix      # Remix only (port 5173)
+pnpm dev:functions  # Deno functions only (port 8000)
+```
 
-This template includes .kiro automation workflows for enhanced development experience:
+**Available Endpoints:**
+- Frontend: `http://localhost:5173`
+- Functions: `http://localhost:8000`
+  - `http://localhost:8000/hello` - Hello World function
+  - `http://localhost:8000/time` - Time utilities function
+  - `http://localhost:8000/api` - REST API function
 
-- **Auto-commit and push workflows** for streamlined version control
-- **README generation** to keep documentation up-to-date
-- **Project scaffolding tools** for rapid development setup
-- **Steering rules** for consistent code standards and package management
+## 📁 Adding New Functions
 
-The .kiro configuration ensures pnpm usage with yarn fallback, maintains shell preferences, and provides automated workflows for common development tasks.
+**It's incredibly simple!** Just create a new `.ts` file in the `functions/` directory:
 
-## Why Deploy remix-template on Railway?
+```typescript
+// functions/weather.ts
+export default function handler(req: Request): Response {
+  return new Response(JSON.stringify({
+    message: "Weather API",
+    temperature: "22°C",
+    timestamp: new Date().toISOString()
+  }), {
+    headers: { "Content-Type": "application/json" }
+  });
+}
+```
 
-**Seamless Deployment:** Railway's git-based deployment automatically builds and deploys your Remix app with zero configuration. Simply connect your repository and Railway handles the rest.
+**That's it!** The function is automatically:
+- ✅ Discovered by the router
+- ✅ Available at `/weather` endpoint
+- ✅ Deployed on next push to main
 
-**Performance Optimized:** Railway's global edge network ensures fast loading times for your server-rendered Remix applications, with automatic scaling based on traffic.
+## 🚀 Deployment
 
-**Developer Experience:** Built-in environment variable management, automatic HTTPS, custom domains, and integrated monitoring make Railway ideal for Remix applications requiring both development speed and production reliability.
+### Automatic Deployment
+Push to `main` branch automatically deploys to both platforms via GitHub Actions.
 
-**Cost Effective:** Pay only for what you use with Railway's usage-based pricing, perfect for Remix apps that benefit from server-side rendering without the overhead of complex infrastructure management.
+### Manual Setup
+1. **[Follow the Deployment Guide](./DEPLOYMENT.md)** for complete setup instructions
+2. **Configure GitHub Secrets** for Cloudflare and Deno Deploy
+3. **Push to main** - deployment happens automatically!
+
+### Deployment Targets
+- **Cloudflare Pages**: Remix SPA with global CDN
+- **Deno Deploy**: Serverless functions with edge computing
+
+## 🔧 Project Structure
+
+```
+remix-deno/
+├── app/                    # Remix application
+├── functions/              # Deno Deploy functions
+│   ├── router.ts          # Dynamic function router
+│   ├── hello.ts           # Sample: Hello World
+│   ├── time.ts            # Sample: Time utilities
+│   ├── api.ts             # Sample: REST API
+│   └── README.md          # Functions documentation
+├── public/                # Static assets
+├── .github/workflows/     # Deployment automation
+├── DEPLOYMENT.md          # Deployment guide
+└── package.json           # Dependencies & scripts
+```
+
+## 🌟 Why This Architecture?
+
+**🚀 Performance**: Cloudflare's global CDN + Deno's edge computing = blazing fast worldwide
+
+**💰 Cost-Effective**: Pay only for function execution time, static hosting is nearly free
+
+**🔧 Developer Experience**: Hot reload, auto-discovery, zero-config deployment
+
+**📈 Scalable**: Auto-scaling functions + CDN handle traffic spikes effortlessly
+
+**🛡️ Reliable**: Built on enterprise-grade infrastructure (Cloudflare + Deno Deploy)

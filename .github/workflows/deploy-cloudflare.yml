@@ -1,4 +1,4 @@
-name: Deploy to Cloudflare Pages and Update Homepage
+name: Deploy to Cloudflare Pages and Deno Deploy
 
 on:
   push:
@@ -6,8 +6,10 @@ on:
     paths:
       - 'app/**'
       - 'public/**'
+      - 'functions/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
+      - 'deno.json'
       - 'vite.config.ts'
       - 'tsconfig.json'
       - 'tailwind.config.*'
@@ -15,9 +17,62 @@ on:
   workflow_dispatch:
 
 jobs:
-  deploy:
+  deploy-deno:
+    runs-on: ubuntu-latest
+    name: Deploy to Deno Deploy
+    outputs:
+      url: ${{ steps.deno-deploy.outputs.url }}
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v1
+        with:
+          deno-version: v1.x
+
+      - name: Verify Deno functions
+        run: |
+          echo "🔍 Checking Deno functions..."
+          deno check functions/*.ts
+          echo "✅ All functions type-checked successfully"
+
+      - name: Test Deno functions
+        run: |
+          echo "🧪 Testing function imports..."
+          deno run --allow-net --allow-env --allow-read functions/router.ts &
+          SERVER_PID=$!
+          sleep 3
+
+          # Test if server is responding
+          if curl -f http://localhost:8000/ > /dev/null 2>&1; then
+            echo "✅ Router is responding correctly"
+          else
+            echo "❌ Router test failed"
+            exit 1
+          fi
+
+          # Clean up
+          kill $SERVER_PID || true
+          wait $SERVER_PID 2>/dev/null || true
+
+      - name: Deploy to Deno Deploy
+        id: deno-deploy
+        uses: denoland/deployctl@v1
+        with:
+          project: ${{ secrets.DENO_DEPLOY_PROJECT }}
+          entrypoint: functions/router.ts
+          root: .
+        env:
+          DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+
+  deploy-cloudflare:
     runs-on: ubuntu-latest
     name: Deploy to Cloudflare Pages
+    needs: deploy-deno
+    outputs:
+      url: ${{ steps.cloudflare-deploy.outputs.url }}
     
     steps:
       - name: Checkout
@@ -38,6 +93,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build Remix SPA
+        env:
+          VITE_API_BASE_URL: ${{ needs.deploy-deno.outputs.url }}
         run: pnpm build
 
       - name: Ensure SPA fallback (_redirects)
@@ -146,23 +203,6 @@ jobs:
               console.log('⚠️ No deployment URL found, skipping homepage update');
             }
 
-      - name: Comment on PR with deployment URL
-        if: github.event_name == 'pull_request' && success()
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.ADMIN_TOKEN }}
-          script: |
-            const deploymentUrl = '${{ steps.cloudflare-deploy.outputs.url }}';
-            
-            if (deploymentUrl && deploymentUrl !== '') {
-              await github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: `🚀 **Cloudflare Pages Deployment**\n\n✅ Successfully deployed to: ${deploymentUrl}\n\n📝 Preview your changes at the link above!`
-              });
-            }
-
       - name: Create GitHub deployment
         if: always()
         id: create-deployment
@@ -199,4 +239,32 @@ jobs:
               state: state,
               environment_url: deploymentUrl || '',
               description: state === 'success' ? 'Deployment succeeded' : 'Deployment failed'
+            });
+
+      - name: Comment on PR with deployment URLs
+        if: github.event_name == 'pull_request' && success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ADMIN_TOKEN }}
+          script: |
+            const denoUrl = '${{ needs.deploy-deno.outputs.url }}';
+            const cloudflareUrl = '${{ steps.cloudflare-deploy.outputs.url }}';
+
+            let comment = '🚀 **Deployment Complete**\n\n';
+
+            if (cloudflareUrl && cloudflareUrl !== '') {
+              comment += `✅ **Cloudflare Pages**: ${cloudflareUrl}\n`;
+            }
+
+            if (denoUrl && denoUrl !== '') {
+              comment += `✅ **Deno Deploy Functions**: ${denoUrl}\n`;
+            }
+
+            comment += '\n📝 Your full-stack application is now live!';
+
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
             });
