@@ -131,7 +131,7 @@ jobs:
           echo "🚀 Deploying to Deno Deploy project: ${PROJECT_NAME}"
           
           # Deploy using deployctl CLI
-          DEPLOY_OUTPUT=$(deployctl deploy --project="${PROJECT_NAME}" --token="${{ secrets.DENO_DEPLOY_TOKEN }}" functions/router.ts 2>&1)
+          DEPLOY_OUTPUT=$(deployctl deploy --project="${PROJECT_NAME}" --token="${{ secrets.DENO_DEPLOY_TOKEN }}" --prod functions/router.ts 2>&1)
           DEPLOY_EXIT_CODE=$?
           
           echo "$DEPLOY_OUTPUT"
@@ -237,30 +237,14 @@ jobs:
 
           echo "Checking for existing project: ${PROJECT_SLUG}"
           if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
-            echo "Project '${PROJECT_SLUG}' already exists"
+            echo "✅ Project '${PROJECT_SLUG}' already exists - skipping creation"
           else
-            echo "Creating project '${PROJECT_SLUG}'..."
-            CREATE_OUT=$(pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main 2>&1) || true
-            echo "$CREATE_OUT"
-            if echo "$CREATE_OUT" | grep -qi "already exists"; then
-              echo "Project already exists (race), continuing"
-            elif echo "$CREATE_OUT" | grep -qiE "Successfully created|created the"; then
-              echo "Project created"
+            echo "🚀 Creating new project: ${PROJECT_SLUG}"
+            if pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main; then
+              echo "✅ Project created successfully"
             else
-              echo "Failed to ensure project creation. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and Account ID."; exit 1
-            fi
-            echo "Verifying creation (with retries)..."
-            VERIFIED=0
-            for i in 1 2 3 4 5; do
-              if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
-                echo "Verified on attempt $i"
-                VERIFIED=1
-                break
-              fi
-              echo "Attempt $i failed, retrying in 2s..."; sleep 2
-            done
-            if [ "$VERIFIED" -ne 1 ]; then
-              echo "Warning: Could not verify project via wrangler info. Continuing; deploy step will surface any issues."
+              echo "❌ Failed to create project. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and Account ID."
+              exit 1
             fi
           fi
 
