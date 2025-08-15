@@ -203,8 +203,10 @@ jobs:
 
       - name: Build Remix SPA
         env:
-          VITE_API_BASE_URL: ${{ needs.deploy-deno.outputs.deno_url }}
-        run: pnpm build
+          VITE_API_BASE_URL: ${{ needs.deploy-deno.outputs.url }}
+        run: |
+          echo "🔗 Building with API URL: $VITE_API_BASE_URL"
+          pnpm build
 
       - name: Ensure SPA fallback (_redirects)
         run: |
