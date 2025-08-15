@@ -272,6 +272,17 @@ jobs:
             fi
           fi
 
+      - name: Post-process build files with correct API URL
+        run: |
+          DENO_URL="${{ needs.deploy-deno.outputs.url }}"
+          echo "🔄 Post-processing build files to replace localhost with: $DENO_URL"
+          
+          # Replace any localhost:8000 references with the actual Deno Deploy URL
+          find build/client -name "*.js" -type f -exec sed -i "s|http://localhost:8000|$DENO_URL|g" {} \;
+          find build/client -name "*.mjs" -type f -exec sed -i "s|http://localhost:8000|$DENO_URL|g" {} \;
+          
+          echo "✅ Build files updated with correct API URL"
+
       - name: Deploy to Cloudflare Pages (wrangler v3 deploy)
         id: cloudflare-deploy
         env:
