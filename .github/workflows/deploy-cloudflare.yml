@@ -221,7 +221,8 @@ jobs:
           if [ -z "$SLUG" ]; then
             SLUG="site-${GITHUB_RUN_ID}"
           fi
-          echo "Using Cloudflare project: $SLUG"
+          echo "📝 Repository name: $BASE_NAME"
+          echo "📝 Generated project slug: $SLUG"
           echo "PROJECT_SLUG=$SLUG" >> "$GITHUB_ENV"
 
       - name: Ensure Cloudflare Pages project exists (wrangler)
@@ -235,16 +236,37 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "CLOUDFLARE_ACCOUNT_ID is empty"; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "CLOUDFLARE_API_TOKEN is empty"; exit 1; }
 
-          echo "Checking for existing project: ${PROJECT_SLUG}"
-          if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
+          echo "🔍 Checking for existing project: ${PROJECT_SLUG}"
+          
+          # List all projects to verify project existence more reliably
+          echo "📋 Listing all Cloudflare Pages projects..."
+          PROJECT_LIST=$(pnpm dlx wrangler pages project list 2>&1) || {
+            echo "❌ Failed to list projects. Check API token permissions."
+            exit 1
+          }
+          
+          echo "$PROJECT_LIST"
+          
+          # Check if project exists in the list
+          if echo "$PROJECT_LIST" | grep -q "│ $PROJECT_SLUG "; then
             echo "✅ Project '${PROJECT_SLUG}' already exists - skipping creation"
           else
             echo "🚀 Creating new project: ${PROJECT_SLUG}"
-            if pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main; then
-              echo "✅ Project created successfully"
+            CREATE_OUTPUT=$(pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main 2>&1)
+            CREATE_EXIT_CODE=$?
+            
+            echo "$CREATE_OUTPUT"
+            
+            # Handle the case where project already exists (race condition or API inconsistency)
+            if [ $CREATE_EXIT_CODE -ne 0 ]; then
+              if echo "$CREATE_OUTPUT" | grep -qi "already exists\|name already exists"; then
+                echo "✅ Project already exists (detected during creation) - continuing"
+              else
+                echo "❌ Failed to create project. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and Account ID."
+                exit 1
+              fi
             else
-              echo "❌ Failed to create project. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and Account ID."
-              exit 1
+              echo "✅ Project created successfully"
             fi
           fi
 
