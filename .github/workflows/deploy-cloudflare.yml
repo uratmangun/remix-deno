@@ -68,6 +68,41 @@ jobs:
           kill $SERVER_PID || true
           wait $SERVER_PID 2>/dev/null || true
 
+      - name: Install Deno Deploy CLI
+        run: |
+          echo "📦 Installing deployctl CLI..."
+          deno install -A --no-check -r -f https://deno.land/x/deploy/deployctl.ts
+          echo "✅ deployctl installed successfully"
+
+      - name: Check and Create Deno Deploy Project
+        env:
+          DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+        run: |
+          PROJECT_NAME="${{ secrets.DENO_DEPLOY_PROJECT }}"
+
+          echo "🔍 Checking if Deno Deploy project '$PROJECT_NAME' exists..."
+
+          # Check if project exists
+          if deployctl projects list --token="$DENO_DEPLOY_TOKEN" | grep -q "^$PROJECT_NAME$"; then
+            echo "✅ Project '$PROJECT_NAME' already exists"
+          else
+            echo "📝 Project '$PROJECT_NAME' not found, creating new project..."
+
+            # Create the project
+            if deployctl projects create "$PROJECT_NAME" --token="$DENO_DEPLOY_TOKEN"; then
+              echo "🎉 Successfully created project '$PROJECT_NAME'"
+            else
+              echo "❌ Failed to create project '$PROJECT_NAME'"
+              echo "💡 This might be because:"
+              echo "   - Project name is already taken globally"
+              echo "   - Invalid project name format"
+              echo "   - Insufficient permissions"
+              exit 1
+            fi
+          fi
+
+          echo "✅ Project '$PROJECT_NAME' is ready for deployment"
+
       - name: Deploy to Deno Deploy
         id: deno-deploy
         uses: denoland/deployctl@v1
