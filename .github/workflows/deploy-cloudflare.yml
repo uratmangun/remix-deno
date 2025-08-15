@@ -1,0 +1,202 @@
+name: Deploy to Cloudflare Pages and Update Homepage
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'app/**'
+      - 'public/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'vite.config.ts'
+      - 'tsconfig.json'
+      - 'tailwind.config.*'
+      - '.github/workflows/deploy-cloudflare.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy to Cloudflare Pages
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Remix SPA
+        run: pnpm build
+
+      - name: Ensure SPA fallback (_redirects)
+        run: |
+          if [ -f public/_redirects ]; then
+            mkdir -p build/client
+            cp public/_redirects build/client/_redirects
+          fi
+
+      - name: Compute Cloudflare project slug
+        run: |
+          BASE_NAME="${{ github.event.repository.name }}"
+          # lowercase, replace non [a-z0-9-] with '-', trim leading/trailing '-', and cap length to 63
+          SLUG=$(echo "$BASE_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-63)
+          if [ -z "$SLUG" ]; then
+            SLUG="site-${GITHUB_RUN_ID}"
+          fi
+          echo "Using Cloudflare project: $SLUG"
+          echo "PROJECT_SLUG=$SLUG" >> "$GITHUB_ENV"
+
+      - name: Ensure Cloudflare Pages project exists (wrangler)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CI: true
+        run: |
+          set -e
+          echo "Wrangler version:"; pnpm dlx wrangler --version
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "CLOUDFLARE_ACCOUNT_ID is empty"; exit 1; }
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "CLOUDFLARE_API_TOKEN is empty"; exit 1; }
+
+          echo "Checking for existing project: ${PROJECT_SLUG}"
+          if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
+            echo "Project '${PROJECT_SLUG}' already exists"
+          else
+            echo "Creating project '${PROJECT_SLUG}'..."
+            CREATE_OUT=$(pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main 2>&1) || true
+            echo "$CREATE_OUT"
+            if echo "$CREATE_OUT" | grep -qi "already exists"; then
+              echo "Project already exists (race), continuing"
+            elif echo "$CREATE_OUT" | grep -qiE "Successfully created|created the"; then
+              echo "Project created"
+            else
+              echo "Failed to ensure project creation. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and Account ID."; exit 1
+            fi
+            echo "Verifying creation (with retries)..."
+            VERIFIED=0
+            for i in 1 2 3 4 5; do
+              if pnpm dlx wrangler pages project info "$PROJECT_SLUG" >/dev/null 2>&1; then
+                echo "Verified on attempt $i"
+                VERIFIED=1
+                break
+              fi
+              echo "Attempt $i failed, retrying in 2s..."; sleep 2
+            done
+            if [ "$VERIFIED" -ne 1 ]; then
+              echo "Warning: Could not verify project via wrangler info. Continuing; deploy step will surface any issues."
+            fi
+          fi
+
+      - name: Deploy to Cloudflare Pages (wrangler v3 deploy)
+        id: cloudflare-deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -e
+          echo "Wrangler version:"; pnpm dlx wrangler --version
+          echo "Deploying project '${PROJECT_SLUG}' from directory 'build/client'"
+          DEPLOY_OUT=$(pnpm dlx wrangler pages deploy build/client --project-name "${PROJECT_SLUG}" 2>&1) || {
+            echo "$DEPLOY_OUT"
+            exit 1
+          }
+          echo "$DEPLOY_OUT"
+          # Extract first pages.dev URL from output
+          URL=$(echo "$DEPLOY_OUT" | grep -Eo 'https?://[^ ]+\.pages\.dev[^ ]*' | head -n1)
+          if [ -n "$URL" ]; then
+            echo "url=$URL" >> "$GITHUB_OUTPUT"
+            echo "Deployment URL: $URL"
+          else
+            echo "Warning: No deployment URL found in wrangler output" >&2
+          fi
+
+      - name: Update Repository Homepage URL
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ADMIN_TOKEN }}
+          script: |
+            const deploymentUrl = '${{ steps.cloudflare-deploy.outputs.url }}';
+            
+            if (deploymentUrl && deploymentUrl !== '') {
+              try {
+                await github.rest.repos.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  homepage: deploymentUrl,
+                  description: 'Remix SPA – Cloudflare Pages static deployment'
+                });
+                
+                console.log(`✅ Repository homepage updated to: ${deploymentUrl}`);
+              } catch (error) {
+                console.error('❌ Failed to update repository homepage:', error);
+                core.setFailed(`Failed to update homepage: ${error.message}`);
+              }
+            } else {
+              console.log('⚠️ No deployment URL found, skipping homepage update');
+            }
+
+      - name: Comment on PR with deployment URL
+        if: github.event_name == 'pull_request' && success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ADMIN_TOKEN }}
+          script: |
+            const deploymentUrl = '${{ steps.cloudflare-deploy.outputs.url }}';
+            
+            if (deploymentUrl && deploymentUrl !== '') {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: `🚀 **Cloudflare Pages Deployment**\n\n✅ Successfully deployed to: ${deploymentUrl}\n\n📝 Preview your changes at the link above!`
+              });
+            }
+
+      - name: Create GitHub deployment
+        if: always()
+        id: create-deployment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ADMIN_TOKEN }}
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production',
+              description: 'Cloudflare Pages deployment',
+              auto_merge: false,
+              required_contexts: []
+            });
+            
+            return deployment.data.id;
+
+      - name: Update deployment status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.ADMIN_TOKEN }}
+          script: |
+            const deploymentUrl = '${{ steps.cloudflare-deploy.outputs.url }}';
+            const state = '${{ job.status }}' === 'success' ? 'success' : 'failure';
+            const deploymentId = ${{ steps.create-deployment.outputs.result }};
+            
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: deploymentId,
+              state: state,
+              environment_url: deploymentUrl || '',
+              description: state === 'success' ? 'Deployment succeeded' : 'Deployment failed'
+            });
