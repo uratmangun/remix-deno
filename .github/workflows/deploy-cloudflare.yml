@@ -28,6 +28,7 @@ jobs:
     name: Deploy to Deno Deploy
     outputs:
       url: ${{ steps.deno-deploy.outputs.url }}
+      deno_url: ${{ steps.deno-status.outputs.deno_url }}
     
     steps:
       - name: Checkout
@@ -68,11 +69,47 @@ jobs:
           kill $SERVER_PID || true
           wait $SERVER_PID 2>/dev/null || true
 
+      - name: Generate Deno Deploy project name
+        id: deno_project_name
+        run: |
+          if [ -n "${{ secrets.DENO_DEPLOY_PROJECT }}" ]; then
+            echo "deno_project_name=${{ secrets.DENO_DEPLOY_PROJECT }}" >> $GITHUB_OUTPUT
+          else
+            # Generate project name from repository name
+            REPO_NAME="${{ github.event.repository.name }}"
+            PROJECT_NAME=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-63)
+            if [ -z "$PROJECT_NAME" ]; then
+              PROJECT_NAME="remix-deno-${GITHUB_RUN_ID}"
+            fi
+            echo "deno_project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Deno Deploy project if not exists
+        run: |
+          if [ -z "${{ secrets.DENO_DEPLOY_TOKEN }}" ]; then
+            echo "⚠️ DENO_DEPLOY_TOKEN not set, skipping project creation"
+            exit 0
+          fi
+          
+          PROJECT_NAME="${{ steps.deno_project_name.outputs.deno_project_name }}"
+          echo "Creating Deno Deploy project if it doesn't exist: ${PROJECT_NAME}"
+          
+          # Install latest deployctl using JSR
+          deno install -A --global jsr:@deno/deployctl
+          
+          # Set non-interactive mode to prevent browser authorization prompts
+          export DENO_DEPLOY_TOKEN="${{ secrets.DENO_DEPLOY_TOKEN }}"
+          
+          # Try to create the project (will succeed if it doesn't exist, fail silently if it does)
+          deployctl projects create "${PROJECT_NAME}" --token="${DENO_DEPLOY_TOKEN}" || echo "Project may already exist - continuing"
+        env:
+          DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+
       - name: Deploy to Deno Deploy
         id: deno-deploy
         uses: denoland/deployctl@v1
         with:
-          project: ${{ secrets.DENO_DEPLOY_PROJECT }}
+          project: ${{ steps.deno_project_name.outputs.deno_project_name }}
           entrypoint: functions/router.ts
           root: .
         env:
@@ -80,12 +117,21 @@ jobs:
         continue-on-error: true
 
       - name: Log Deno Deploy Status
+        id: deno-status
         run: |
-          if [ -z "${{ secrets.DENO_DEPLOY_PROJECT }}" ] || [ -z "${{ secrets.DENO_DEPLOY_TOKEN }}" ]; then
-            echo "⚠️ Deno Deploy secrets not configured - skipped deployment"
-            echo "📝 To enable Deno Deploy, set DENO_DEPLOY_PROJECT and DENO_DEPLOY_TOKEN secrets"
+          if [ -z "${{ secrets.DENO_DEPLOY_TOKEN }}" ]; then
+            echo " DENO_DEPLOY_TOKEN secret not configured - skipped deployment"
+            echo " To enable Deno Deploy, set DENO_DEPLOY_TOKEN secret"
+            echo "deno_url=http://localhost:8000" >> $GITHUB_OUTPUT
           else
-            echo "✅ Deno Deploy attempted with project: ${{ secrets.DENO_DEPLOY_PROJECT }}"
+            DENO_URL="${{ steps.deno-deploy.outputs.url }}"
+            if [ -n "$DENO_URL" ]; then
+              echo " Deno Deploy successful: $DENO_URL"
+              echo "deno_url=$DENO_URL" >> $GITHUB_OUTPUT
+            else
+              echo " Deno Deploy completed but no URL returned, using fallback"
+              echo "deno_url=http://localhost:8000" >> $GITHUB_OUTPUT
+            fi
           fi
 
   deploy-cloudflare:
@@ -115,7 +161,7 @@ jobs:
 
       - name: Build Remix SPA
         env:
-          VITE_API_BASE_URL: ${{ needs.deploy-deno.outputs.url }}
+          VITE_API_BASE_URL: ${{ needs.deploy-deno.outputs.deno_url }}
         run: pnpm build
 
       - name: Ensure SPA fallback (_redirects)
