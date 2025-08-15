@@ -68,52 +68,12 @@ jobs:
           kill $SERVER_PID || true
           wait $SERVER_PID 2>/dev/null || true
 
-      - name: Check and Create Deno Deploy Project
-        env:
-          DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
+      - name: Prepare Deno Deploy Project
         run: |
           PROJECT_NAME="${{ secrets.DENO_DEPLOY_PROJECT }}"
-
-          echo "🔍 Checking if Deno Deploy project '$PROJECT_NAME' exists..."
-
-          # Use curl to check if project exists via Deno Deploy API
-          RESPONSE=$(curl -s -H "Authorization: Bearer $DENO_DEPLOY_TOKEN" \
-            "https://api.deno.com/v1/projects/$PROJECT_NAME" \
-            -w "%{http_code}" -o /tmp/project_check.json)
-
-          if [ "$RESPONSE" = "200" ]; then
-            echo "✅ Project '$PROJECT_NAME' already exists"
-          elif [ "$RESPONSE" = "404" ]; then
-            echo "📝 Project '$PROJECT_NAME' not found, creating new project..."
-
-            # Create the project via API
-            CREATE_RESPONSE=$(curl -s -X POST \
-              -H "Authorization: Bearer $DENO_DEPLOY_TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"name\":\"$PROJECT_NAME\"}" \
-              "https://api.deno.com/v1/projects" \
-              -w "%{http_code}" -o /tmp/project_create.json)
-
-            if [ "$CREATE_RESPONSE" = "201" ] || [ "$CREATE_RESPONSE" = "200" ]; then
-              echo "🎉 Successfully created project '$PROJECT_NAME'"
-            else
-              echo "❌ Failed to create project '$PROJECT_NAME' (HTTP $CREATE_RESPONSE)"
-              echo "💡 Response:"
-              cat /tmp/project_create.json
-              echo ""
-              echo "💡 This might be because:"
-              echo "   - Project name is already taken globally"
-              echo "   - Invalid project name format"
-              echo "   - Insufficient permissions"
-              exit 1
-            fi
-          else
-            echo "❌ Unexpected response when checking project: HTTP $RESPONSE"
-            cat /tmp/project_check.json
-            exit 1
-          fi
-
-          echo "✅ Project '$PROJECT_NAME' is ready for deployment"
+          echo "� Preparing to deploy to Deno Deploy project: '$PROJECT_NAME'"
+          echo "📝 Note: Project will be auto-created by deployctl if it doesn't exist"
+          echo "✅ Ready for deployment"
 
       - name: Deploy to Deno Deploy
         id: deno-deploy
