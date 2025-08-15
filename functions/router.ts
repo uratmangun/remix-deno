@@ -59,7 +59,7 @@ class FunctionRouter {
               console.warn(`⚠️  Skipped ${entry.name}: No default export function found`);
             }
           } catch (error) {
-            console.error(`❌ Failed to load ${entry.name}:`, error.message);
+            console.error(`❌ Failed to load ${entry.name}:`, error instanceof Error ? error.message : String(error));
           }
         }
       }
@@ -123,7 +123,7 @@ class FunctionRouter {
       } catch (error) {
         console.error(`❌ Error in function ${functionName}:`, error);
         return this.createErrorResponse(
-          `Error executing function: ${error.message}`,
+          `Error executing function: ${error instanceof Error ? error.message : String(error)}`,
           corsHeaders,
           500
         );
