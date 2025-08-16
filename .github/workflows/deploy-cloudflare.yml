@@ -421,19 +421,28 @@ jobs:
             cp public/_redirects build/client/_redirects
           fi
 
-      - name: Compute Cloudflare project slug
+      - name: Generate Cloudflare Pages project name
+        id: cloudflare_project_name
         run: |
-          BASE_NAME="${{ github.event.repository.name }}"
-          # lowercase, replace non [a-z0-9-] with '-', trim leading/trailing '-', and cap length to 63
-          SLUG=$(echo "$BASE_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-63)
-          if [ -z "$SLUG" ]; then
-            SLUG="site-${GITHUB_RUN_ID}"
-          fi
-          echo "📝 Repository name: $BASE_NAME"
-          echo "📝 Generated project slug: $SLUG"
-          echo "PROJECT_SLUG=$SLUG" >> "$GITHUB_ENV"
+          # Extract repository name from GitHub context
+          REPO_NAME="${{ github.event.repository.name }}"
+          
+          # Generate random alphanumeric string (8 chars)
+          RANDOM_ID=$(openssl rand -hex 4)
+          
+          # Create unique project name with format: {repo-name}-{random}
+          PROJECT_NAME="${REPO_NAME}-${RANDOM_ID}"
+          
+          # Ensure project name is valid (lowercase, alphanumeric with hyphens, max 63 chars)
+          PROJECT_NAME=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-63)
+          
+          echo "📁 Repository name: '$REPO_NAME'"
+          echo "🎲 Random ID: '$RANDOM_ID'"
+          echo "🚀 Generated unique project name: '$PROJECT_NAME'"
+          echo "cloudflare_project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
+          echo "PROJECT_SLUG=$PROJECT_NAME" >> "$GITHUB_ENV"
 
-      - name: Ensure Cloudflare Pages project exists (wrangler)
+      - name: Create Cloudflare Pages project with cleanup
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -443,40 +452,168 @@ jobs:
           echo "Wrangler version:"; pnpm dlx wrangler --version
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "CLOUDFLARE_ACCOUNT_ID is empty"; exit 1; }
           test -n "$CLOUDFLARE_API_TOKEN" || { echo "CLOUDFLARE_API_TOKEN is empty"; exit 1; }
-
-          echo "🔍 Checking for existing project: ${PROJECT_SLUG}"
           
-          # List all projects to verify project existence more reliably
-          echo "📋 Listing all Cloudflare Pages projects..."
-          PROJECT_LIST=$(pnpm dlx wrangler pages project list 2>&1) || {
-            echo "❌ Failed to list projects. Check API token permissions."
-            exit 1
-          }
+          PROJECT_NAME="${{ steps.cloudflare_project_name.outputs.cloudflare_project_name }}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          echo "🔍 Preparing Cloudflare Pages project: ${PROJECT_NAME}"
+          echo "📁 Repository name prefix: ${REPO_NAME}"
           
-          echo "$PROJECT_LIST"
+          # Cleanup phase: Delete all existing projects with the same repository name prefix
+          echo ""
+          echo "════════════════════════════════════════════════════════"
+          echo "🧹 CLEANUP PHASE: Removing old Cloudflare Pages projects"
+          echo "════════════════════════════════════════════════════════"
+          echo "🔍 Looking for projects with prefix: ${REPO_NAME}-"
+          echo ""
           
-          # Check if project exists in the list
-          if echo "$PROJECT_LIST" | grep -q "│ $PROJECT_SLUG "; then
-            echo "✅ Project '${PROJECT_SLUG}' already exists - skipping creation"
+          # Get list of all projects
+          echo "📋 Fetching project list from Cloudflare Pages..."
+          PROJECT_LIST_OUTPUT=$(pnpm dlx wrangler pages project list 2>&1)
+          PROJECT_LIST_EXIT_CODE=$?
+          
+          if [ $PROJECT_LIST_EXIT_CODE -ne 0 ]; then
+            echo "⚠️ Warning: Failed to list projects (exit code: $PROJECT_LIST_EXIT_CODE)"
+            echo "📝 Output: $PROJECT_LIST_OUTPUT"
+            echo "⚠️ Proceeding without cleanup..."
           else
-            echo "🚀 Creating new project: ${PROJECT_SLUG}"
-            CREATE_OUTPUT=$(pnpm dlx wrangler pages project create "$PROJECT_SLUG" --production-branch=main 2>&1)
-            CREATE_EXIT_CODE=$?
+            echo "✅ Successfully retrieved project list"
             
-            echo "$CREATE_OUTPUT"
+            # Extract project names from the table output
+            # The output has table format with │ separators, extract first column
+            MATCHING_PROJECTS=$(echo "$PROJECT_LIST_OUTPUT" | grep "│" | awk -F'│' '{print $2}' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep "^${REPO_NAME}-" || true)
             
-            # Handle the case where project already exists (race condition or API inconsistency)
-            if [ $CREATE_EXIT_CODE -ne 0 ]; then
-              if echo "$CREATE_OUTPUT" | grep -qi "already exists\|name already exists"; then
-                echo "✅ Project already exists (detected during creation) - continuing"
+            # Count matching projects
+            MATCH_COUNT=$(echo "$MATCHING_PROJECTS" | grep -c "^${REPO_NAME}-" || echo "0")
+            
+            if [ "$MATCH_COUNT" -gt 0 ]; then
+              echo "🎯 Found ${MATCH_COUNT} project(s) to delete:"
+              echo "────────────────────────────────────────"
+              echo "$MATCHING_PROJECTS" | while IFS= read -r proj; do
+                [ -n "$proj" ] && echo "  • $proj"
+              done
+              echo "────────────────────────────────────────"
+              echo ""
+              
+              # Delete each matching project with retry logic
+              DELETION_FAILURES=0
+              echo "$MATCHING_PROJECTS" | while IFS= read -r project_to_delete; do
+                if [ -n "$project_to_delete" ]; then
+                  echo "🗑️  Attempting to delete: $project_to_delete"
+                  
+                  # Try to delete with retry logic
+                  RETRY_COUNT=0
+                  MAX_RETRIES=3
+                  DELETE_SUCCESS=false
+                  
+                  while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+                    DELETE_OUTPUT=$(pnpm dlx wrangler pages project delete "$project_to_delete" --yes 2>&1)
+                    DELETE_EXIT_CODE=$?
+                    
+                    if [ $DELETE_EXIT_CODE -eq 0 ]; then
+                      echo "   ✅ Successfully deleted: $project_to_delete"
+                      DELETE_SUCCESS=true
+                      break
+                    else
+                      RETRY_COUNT=$((RETRY_COUNT + 1))
+                      
+                      # Check if project doesn't exist (already deleted)
+                      if echo "$DELETE_OUTPUT" | grep -qi "not found\|does not exist\|404"; then
+                        echo "   ℹ️  Project doesn't exist (may have been already deleted): $project_to_delete"
+                        DELETE_SUCCESS=true
+                        break
+                      fi
+                      
+                      if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                        echo "   ⚠️  Deletion attempt $RETRY_COUNT failed, retrying..."
+                        echo "   📝 Error: $DELETE_OUTPUT"
+                        sleep 2
+                      else
+                        echo "   ❌ Failed to delete after $MAX_RETRIES attempts: $project_to_delete"
+                        echo "   📝 Last error: $DELETE_OUTPUT"
+                        DELETION_FAILURES=$((DELETION_FAILURES + 1))
+                      fi
+                    fi
+                  done
+                fi
+              done
+              
+              if [ $DELETION_FAILURES -gt 0 ]; then
+                echo ""
+                echo "⚠️  Warning: Failed to delete $DELETION_FAILURES project(s)"
+                echo "   These may need manual cleanup in the Cloudflare Pages dashboard"
               else
-                echo "❌ Failed to create project. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and Account ID."
-                exit 1
+                echo ""
+                echo "✅ All matching projects deleted successfully"
               fi
+              
+              # Wait for deletions to propagate
+              echo "⏳ Waiting 5 seconds for deletions to propagate..."
+              sleep 5
             else
-              echo "✅ Project created successfully"
+              echo "✅ No existing projects found with prefix '${REPO_NAME}-'"
             fi
           fi
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════"
+          echo "🚀 PROJECT CREATION PHASE"
+          echo "════════════════════════════════════════════════════════"
+          
+          # Verify cleanup was successful by checking again
+          echo "🔍 Verifying cleanup completion..."
+          VERIFY_LIST=$(pnpm dlx wrangler pages project list 2>&1 | grep "│" | awk -F'│' '{print $2}' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep "^${PROJECT_NAME}$" || true)
+          
+          if [ -n "$VERIFY_LIST" ]; then
+            echo "⚠️  Warning: Project ${PROJECT_NAME} still exists, attempting force deletion..."
+            pnpm dlx wrangler pages project delete "${PROJECT_NAME}" --yes 2>&1
+            sleep 3
+          fi
+          
+          # Now create the new project with retry logic
+          echo "🚀 Creating new project: ${PROJECT_NAME}"
+          
+          CREATE_RETRY=0
+          CREATE_MAX_RETRIES=3
+          CREATE_SUCCESS=false
+          
+          while [ $CREATE_RETRY -lt $CREATE_MAX_RETRIES ]; do
+            CREATE_OUTPUT=$(pnpm dlx wrangler pages project create "${PROJECT_NAME}" --production-branch=main 2>&1)
+            CREATE_EXIT_CODE=$?
+            
+            if [ $CREATE_EXIT_CODE -eq 0 ]; then
+              echo "✅ Project created successfully: ${PROJECT_NAME}"
+              CREATE_SUCCESS=true
+              break
+            else
+              CREATE_RETRY=$((CREATE_RETRY + 1))
+              
+              # Check if project already exists
+              if echo "$CREATE_OUTPUT" | grep -qi "already exists\|name already exists\|409"; then
+                echo "ℹ️  Project already exists, using existing project: ${PROJECT_NAME}"
+                CREATE_SUCCESS=true
+                break
+              fi
+              
+              if [ $CREATE_RETRY -lt $CREATE_MAX_RETRIES ]; then
+                echo "⚠️  Creation attempt $CREATE_RETRY failed, retrying..."
+                echo "📝 Error: $CREATE_OUTPUT"
+                sleep 3
+              else
+                echo "❌ Failed to create project after $CREATE_MAX_RETRIES attempts"
+                echo "📝 Last error: $CREATE_OUTPUT"
+              fi
+            fi
+          done
+          
+          if [ "$CREATE_SUCCESS" != "true" ]; then
+            echo "❌ Project creation failed. Check API token permissions (Account: Cloudflare Pages: Read, Edit) and try again."
+            exit 1
+          fi
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════"
+          echo "✅ PROJECT SETUP COMPLETE"
+          echo "════════════════════════════════════════════════════════"
 
       - name: Deploy to Cloudflare Pages (wrangler v3 deploy)
         id: cloudflare-deploy
