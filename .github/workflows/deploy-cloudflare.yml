@@ -110,7 +110,9 @@ jobs:
           fi
           
           PROJECT_NAME="${{ steps.deno_project_name.outputs.deno_project_name }}"
-          echo "🔍 Checking Deno Deploy project: ${PROJECT_NAME}"
+          REPO_NAME="${{ github.event.repository.name }}"
+          echo "🔍 Preparing Deno Deploy project: ${PROJECT_NAME}"
+          echo "📁 Repository name prefix: ${REPO_NAME}"
           
           # Set non-interactive mode to prevent browser authorization prompts
           export DENO_DEPLOY_TOKEN="${{ secrets.DENO_DEPLOY_TOKEN }}"
@@ -124,17 +126,52 @@ jobs:
           fi
           echo "✅ Token verified successfully"
           
-          # Check if project already exists
-          if deployctl projects list --token="${DENO_DEPLOY_TOKEN}" | grep -q "^${PROJECT_NAME}$"; then
-            echo "✅ Project '${PROJECT_NAME}' already exists"
-          else
-            echo "🚀 Creating new project: ${PROJECT_NAME}"
-            if deployctl projects create "${PROJECT_NAME}" --token="${DENO_DEPLOY_TOKEN}"; then
-              echo "✅ Project created successfully"
+          # Cleanup phase: Delete all existing projects with the same repository name prefix
+          echo "🧹 Starting cleanup phase..."
+          echo "🔍 Listing all existing projects to find matches for prefix: ${REPO_NAME}-"
+          
+          # Get list of all projects and filter for ones matching the repository name prefix
+          PROJECT_LIST=$(deployctl projects list --token="${DENO_DEPLOY_TOKEN}" 2>/dev/null || echo "")
+          
+          if [ -n "$PROJECT_LIST" ]; then
+            # Extract project names that match the pattern: {repo-name}-{anything}
+            MATCHING_PROJECTS=$(echo "$PROJECT_LIST" | grep -E "^${REPO_NAME}-[a-zA-Z0-9]+$" || echo "")
+            
+            if [ -n "$MATCHING_PROJECTS" ]; then
+              echo "🎯 Found existing projects with matching prefix:"
+              echo "$MATCHING_PROJECTS"
+              
+              # Delete each matching project
+              echo "$MATCHING_PROJECTS" | while IFS= read -r project_to_delete; do
+                if [ -n "$project_to_delete" ]; then
+                  echo "🗑️ Deleting project: $project_to_delete"
+                  if deployctl projects delete "$project_to_delete" --token="${DENO_DEPLOY_TOKEN}" --force 2>/dev/null; then
+                    echo "✅ Successfully deleted: $project_to_delete"
+                  else
+                    echo "⚠️ Failed to delete: $project_to_delete (may not exist or insufficient permissions)"
+                  fi
+                fi
+              done
+              
+              echo "🧹 Cleanup phase completed"
             else
-              echo "❌ Failed to create project. Check token permissions."
-              exit 1
+              echo "✅ No existing projects found with prefix '${REPO_NAME}-', skipping cleanup"
             fi
+          else
+            echo "⚠️ Could not retrieve project list for cleanup, proceeding with creation"
+          fi
+          
+          # Wait a moment for deletions to propagate
+          echo "⏳ Waiting for cleanup to propagate..."
+          sleep 3
+          
+          # Now create the new project
+          echo "🚀 Creating new project: ${PROJECT_NAME}"
+          if deployctl projects create "${PROJECT_NAME}" --token="${DENO_DEPLOY_TOKEN}"; then
+            echo "✅ Project created successfully"
+          else
+            echo "❌ Failed to create project. Check token permissions."
+            exit 1
           fi
         env:
           DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
