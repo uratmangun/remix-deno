@@ -72,16 +72,19 @@ jobs:
       - name: Generate Deno Deploy project name
         id: deno_project_name
         run: |
-          # Always generate a random project name
+          # Extract repository name from GitHub context
+          REPO_NAME="${{ github.event.repository.name }}"
+          
           # Generate random alphanumeric string (8 chars)
           RANDOM_ID=$(openssl rand -hex 4)
           
-          # Create unique project name with format: remix-deno-{random}
-          PROJECT_NAME="remix-deno-${RANDOM_ID}"
+          # Create unique project name with format: {repo-name}-{random}
+          PROJECT_NAME="${REPO_NAME}-${RANDOM_ID}"
           
           # Ensure project name is valid (lowercase, alphanumeric with hyphens, max 63 chars)
           PROJECT_NAME=$(echo "$PROJECT_NAME" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9-]+/-/g' | sed -E 's/^-+|-+$//g' | cut -c1-63)
 
+          echo "📁 Repository name: '$REPO_NAME'"
           echo "🎲 Random ID: '$RANDOM_ID'"
           echo "🚀 Generated unique project name: '$PROJECT_NAME'"
           echo "deno_project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
