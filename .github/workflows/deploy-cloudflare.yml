@@ -91,10 +91,10 @@ jobs:
 
       - name: Install Deno Deploy CLI
         run: |
-          # Install deployctl using the stable deno.land/x URL instead of JSR
-          echo "📦 Installing deployctl from deno.land/x..."
-          deno install -A --global --force https://deno.land/x/deploy/deployctl.ts
-          
+          # Install deployctl using the current JSR registry (recommended method)
+          echo "📦 Installing deployctl from JSR..."
+          deno install -gArf jsr:@deno/deployctl
+
           # Verify installation
           echo "✅ deployctl installed successfully"
           deployctl --version
