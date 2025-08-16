@@ -127,52 +127,161 @@ jobs:
           echo "✅ Token verified successfully"
           
           # Cleanup phase: Delete all existing projects with the same repository name prefix
-          echo "🧹 Starting cleanup phase..."
-          echo "🔍 Listing all existing projects to find matches for prefix: ${REPO_NAME}-"
+          echo ""
+          echo "════════════════════════════════════════════════════════"
+          echo "🧹 CLEANUP PHASE: Removing old projects"
+          echo "════════════════════════════════════════════════════════"
+          echo "🔍 Looking for projects with prefix: ${REPO_NAME}-"
+          echo ""
           
-          # Get list of all projects and filter for ones matching the repository name prefix
-          PROJECT_LIST=$(deployctl projects list --token="${DENO_DEPLOY_TOKEN}" 2>/dev/null || echo "")
+          # Get list of all projects using JSON output for better parsing
+          echo "📋 Fetching project list from Deno Deploy..."
+          PROJECT_LIST_OUTPUT=$(deployctl projects list --token="${DENO_DEPLOY_TOKEN}" 2>&1)
+          PROJECT_LIST_EXIT_CODE=$?
           
-          if [ -n "$PROJECT_LIST" ]; then
-            # Extract project names that match the pattern: {repo-name}-{anything}
-            MATCHING_PROJECTS=$(echo "$PROJECT_LIST" | grep -E "^${REPO_NAME}-[a-zA-Z0-9]+$" || echo "")
+          if [ $PROJECT_LIST_EXIT_CODE -ne 0 ]; then
+            echo "⚠️ Warning: Failed to list projects (exit code: $PROJECT_LIST_EXIT_CODE)"
+            echo "📝 Output: $PROJECT_LIST_OUTPUT"
+            echo "⚠️ Proceeding without cleanup..."
+          else
+            echo "✅ Successfully retrieved project list"
             
-            if [ -n "$MATCHING_PROJECTS" ]; then
-              echo "🎯 Found existing projects with matching prefix:"
-              echo "$MATCHING_PROJECTS"
+            # The deployctl output is typically in a table format. We need to extract just the project names
+            # Skip header lines and extract the first column (project name)
+            MATCHING_PROJECTS=$(echo "$PROJECT_LIST_OUTPUT" | tail -n +3 | awk '{print $1}' | grep "^${REPO_NAME}-" || true)
+            
+            # Count matching projects
+            MATCH_COUNT=$(echo "$MATCHING_PROJECTS" | grep -c "^${REPO_NAME}-" || echo "0")
+            
+            if [ "$MATCH_COUNT" -gt 0 ]; then
+              echo "🎯 Found ${MATCH_COUNT} project(s) to delete:"
+              echo "────────────────────────────────────────"
+              echo "$MATCHING_PROJECTS" | while IFS= read -r proj; do
+                [ -n "$proj" ] && echo "  • $proj"
+              done
+              echo "────────────────────────────────────────"
+              echo ""
               
-              # Delete each matching project
+              # Delete each matching project with retry logic
+              DELETION_FAILURES=0
               echo "$MATCHING_PROJECTS" | while IFS= read -r project_to_delete; do
                 if [ -n "$project_to_delete" ]; then
-                  echo "🗑️ Deleting project: $project_to_delete"
-                  if deployctl projects delete "$project_to_delete" --token="${DENO_DEPLOY_TOKEN}" --force 2>/dev/null; then
-                    echo "✅ Successfully deleted: $project_to_delete"
-                  else
-                    echo "⚠️ Failed to delete: $project_to_delete (may not exist or insufficient permissions)"
-                  fi
+                  echo "🗑️  Attempting to delete: $project_to_delete"
+                  
+                  # Try to delete with retry logic
+                  RETRY_COUNT=0
+                  MAX_RETRIES=3
+                  DELETE_SUCCESS=false
+                  
+                  while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+                    DELETE_OUTPUT=$(deployctl projects delete "$project_to_delete" --token="${DENO_DEPLOY_TOKEN}" --force 2>&1)
+                    DELETE_EXIT_CODE=$?
+                    
+                    if [ $DELETE_EXIT_CODE -eq 0 ]; then
+                      echo "   ✅ Successfully deleted: $project_to_delete"
+                      DELETE_SUCCESS=true
+                      break
+                    else
+                      RETRY_COUNT=$((RETRY_COUNT + 1))
+                      
+                      # Check if project doesn't exist (already deleted)
+                      if echo "$DELETE_OUTPUT" | grep -qi "not found\|does not exist\|404"; then
+                        echo "   ℹ️  Project doesn't exist (may have been already deleted): $project_to_delete"
+                        DELETE_SUCCESS=true
+                        break
+                      fi
+                      
+                      if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                        echo "   ⚠️  Deletion attempt $RETRY_COUNT failed, retrying..."
+                        echo "   📝 Error: $DELETE_OUTPUT"
+                        sleep 2
+                      else
+                        echo "   ❌ Failed to delete after $MAX_RETRIES attempts: $project_to_delete"
+                        echo "   📝 Last error: $DELETE_OUTPUT"
+                        DELETION_FAILURES=$((DELETION_FAILURES + 1))
+                      fi
+                    fi
+                  done
                 fi
               done
               
-              echo "🧹 Cleanup phase completed"
+              if [ $DELETION_FAILURES -gt 0 ]; then
+                echo ""
+                echo "⚠️  Warning: Failed to delete $DELETION_FAILURES project(s)"
+                echo "   These may need manual cleanup in the Deno Deploy dashboard"
+              else
+                echo ""
+                echo "✅ All matching projects deleted successfully"
+              fi
+              
+              # Wait longer for deletions to fully propagate
+              echo "⏳ Waiting 5 seconds for deletions to propagate..."
+              sleep 5
             else
-              echo "✅ No existing projects found with prefix '${REPO_NAME}-', skipping cleanup"
+              echo "✅ No existing projects found with prefix '${REPO_NAME}-'"
             fi
-          else
-            echo "⚠️ Could not retrieve project list for cleanup, proceeding with creation"
           fi
           
-          # Wait a moment for deletions to propagate
-          echo "⏳ Waiting for cleanup to propagate..."
-          sleep 3
+          echo ""
+          echo "════════════════════════════════════════════════════════"
+          echo "🚀 PROJECT CREATION PHASE"
+          echo "════════════════════════════════════════════════════════"
           
-          # Now create the new project
+          # Verify cleanup was successful by checking again
+          echo "🔍 Verifying cleanup completion..."
+          VERIFY_LIST=$(deployctl projects list --token="${DENO_DEPLOY_TOKEN}" 2>&1 | tail -n +3 | awk '{print $1}' | grep "^${PROJECT_NAME}$" || true)
+          
+          if [ -n "$VERIFY_LIST" ]; then
+            echo "⚠️  Warning: Project ${PROJECT_NAME} still exists, attempting force deletion..."
+            deployctl projects delete "${PROJECT_NAME}" --token="${DENO_DEPLOY_TOKEN}" --force 2>&1
+            sleep 3
+          fi
+          
+          # Now create the new project with retry logic
           echo "🚀 Creating new project: ${PROJECT_NAME}"
-          if deployctl projects create "${PROJECT_NAME}" --token="${DENO_DEPLOY_TOKEN}"; then
-            echo "✅ Project created successfully"
-          else
-            echo "❌ Failed to create project. Check token permissions."
+          
+          CREATE_RETRY=0
+          CREATE_MAX_RETRIES=3
+          CREATE_SUCCESS=false
+          
+          while [ $CREATE_RETRY -lt $CREATE_MAX_RETRIES ]; do
+            CREATE_OUTPUT=$(deployctl projects create "${PROJECT_NAME}" --token="${DENO_DEPLOY_TOKEN}" 2>&1)
+            CREATE_EXIT_CODE=$?
+            
+            if [ $CREATE_EXIT_CODE -eq 0 ]; then
+              echo "✅ Project created successfully: ${PROJECT_NAME}"
+              CREATE_SUCCESS=true
+              break
+            else
+              CREATE_RETRY=$((CREATE_RETRY + 1))
+              
+              # Check if project already exists
+              if echo "$CREATE_OUTPUT" | grep -qi "already exists\|name already exists\|409"; then
+                echo "ℹ️  Project already exists, using existing project: ${PROJECT_NAME}"
+                CREATE_SUCCESS=true
+                break
+              fi
+              
+              if [ $CREATE_RETRY -lt $CREATE_MAX_RETRIES ]; then
+                echo "⚠️  Creation attempt $CREATE_RETRY failed, retrying..."
+                echo "📝 Error: $CREATE_OUTPUT"
+                sleep 3
+              else
+                echo "❌ Failed to create project after $CREATE_MAX_RETRIES attempts"
+                echo "📝 Last error: $CREATE_OUTPUT"
+              fi
+            fi
+          done
+          
+          if [ "$CREATE_SUCCESS" != "true" ]; then
+            echo "❌ Project creation failed. Check token permissions and try again."
             exit 1
           fi
+          
+          echo ""
+          echo "════════════════════════════════════════════════════════"
+          echo "✅ PROJECT SETUP COMPLETE"
+          echo "════════════════════════════════════════════════════════"
         env:
           DENO_DEPLOY_TOKEN: ${{ secrets.DENO_DEPLOY_TOKEN }}
 
