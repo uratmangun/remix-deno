@@ -230,11 +230,12 @@ jobs:
           DENO_URL="${{ needs.deploy-deno.outputs.url }}"
           echo "🔗 Received Deno Deploy URL: ${DENO_URL}"
           
-          # Verify we have a valid URL
+          # Verify we have a valid URL - fail if not
           if [ -z "${DENO_URL}" ] || [ "${DENO_URL}" = "" ]; then
-            echo "❌ No Deno Deploy URL received from previous job"
-            echo "❌ Using fallback URL"
-            DENO_URL="https://remix-deno.deno.dev"
+            echo "❌ ERROR: No Deno Deploy URL received from previous job"
+            echo "❌ The Deno deployment must complete successfully before building the Remix SPA"
+            echo "💡 Check the 'deploy-deno' job logs for deployment issues"
+            exit 1
           fi
           
           # Export the environment variable for Vite
