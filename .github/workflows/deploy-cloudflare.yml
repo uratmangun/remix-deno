@@ -89,6 +89,16 @@ jobs:
           echo "🚀 Generated unique project name: '$PROJECT_NAME'"
           echo "deno_project_name=$PROJECT_NAME" >> $GITHUB_OUTPUT
 
+      - name: Install Deno Deploy CLI
+        run: |
+          # Install deployctl using the stable deno.land/x URL instead of JSR
+          echo "📦 Installing deployctl from deno.land/x..."
+          deno install -A --global --force https://deno.land/x/deploy/deployctl.ts
+          
+          # Verify installation
+          echo "✅ deployctl installed successfully"
+          deployctl --version
+
       - name: Create Deno Deploy project if not exists
         run: |
           if [ -z "${{ secrets.DENO_DEPLOY_TOKEN }}" ]; then
@@ -101,9 +111,6 @@ jobs:
           
           PROJECT_NAME="${{ steps.deno_project_name.outputs.deno_project_name }}"
           echo "🔍 Checking Deno Deploy project: ${PROJECT_NAME}"
-          
-          # Install latest deployctl using JSR
-          deno install -A --global jsr:@deno/deployctl
           
           # Set non-interactive mode to prevent browser authorization prompts
           export DENO_DEPLOY_TOKEN="${{ secrets.DENO_DEPLOY_TOKEN }}"
